@@ -353,19 +353,25 @@ impl Expr {
 }
 
 fn main() {
-    println!("Enter an arithmetic expression (e.g., sin(0.5) + sqrt(9):");
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).unwrap();
-    let input = input.trim();
+    loop {
+        println!("Enter an arithmetic expression (e.g., sin(0.5) + sqrt(9):");
+        let mut input = String::new();
+        io::stdin().read_line(&mut input).unwrap();
+        let input = input.trim();
 
-    match Parser::new(input) {
-        Ok(mut parser) => match parser.parse() {
-            Ok(expr) => match expr.evaluate() {
-                Ok(result) => println!("Result: {}", result),
-                Err(e) => println!("Evaluation error: {}", e),
+        if input == "q" {
+            break;
+        }
+
+        match Parser::new(input) {
+            Ok(mut parser) => match parser.parse() {
+                Ok(expr) => match expr.evaluate() {
+                    Ok(result) => println!("Result: {}", result),
+                    Err(e) => println!("Evaluation error: {}", e),
+                },
+                Err(e) => println!("Parse error: {}", e),
             },
-            Err(e) => println!("Parse error: {}", e),
-        },
-        Err(e) => println!("Lexer error: {}", e),
+            Err(e) => println!("Lexer error: {}", e),
+        }
     }
 }
