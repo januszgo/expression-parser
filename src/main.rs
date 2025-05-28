@@ -10,6 +10,12 @@ enum Token {
     Exponent,
     LeftParen,
     RightParen,
+    Sqrt,
+    Sin,
+    Cos,
+    Tan,
+    Cot,
+    Comma,
     EndOfInput,
 }
 
@@ -68,7 +74,12 @@ impl Lexer {
                 self.index += 1;
                 Ok(Token::RightParen)
             }
+            ',' => {
+                self.index += 1;
+                Ok(Token::Comma)
+            }
             '0'..='9' | '.' => self.scan_number(),
+            c if c.is_alphabetic() => self.scan_function(),
             _ => Err(format!("Unexpected character: '{}'", c)),
         }
     }
@@ -92,7 +103,6 @@ impl Lexer {
 
         if !seen_dot && self.index < self.chars.len() && self.chars[self.index] == '.' {
             s.push('.');
-            seen_dot = true;
             self.index += 1;
             while self.index < self.chars.len() && self.chars[self.index].is_digit(10) {
                 s.push(self.chars[self.index]);
@@ -110,6 +120,23 @@ impl Lexer {
             Err(_) => Err(format!("Invalid number format: '{}'", s)),
         }
     }
+
+    fn scan_function(&mut self) -> Result<Token, String> {
+        let start = self.index;
+        while self.index < self.chars.len() && self.chars[self.index].is_alphabetic() {
+            self.index += 1;
+        }
+        let func_str: String = self.chars[start..self.index].iter().collect();
+        
+        match func_str.to_lowercase().as_str() {
+            "sqrt" => Ok(Token::Sqrt),
+            "sin" => Ok(Token::Sin),
+            "cos" => Ok(Token::Cos),
+            "tan" | "tg" => Ok(Token::Tan),
+            "cot" | "ctg" => Ok(Token::Cot),
+            _ => Err(format!("Unknown function: '{}'", func_str)),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -117,6 +144,7 @@ enum Expr {
     Number(f64),
     BinOp(Box<Expr>, BinOp, Box<Expr>),
     UnaryOp(UnaryOp, Box<Expr>),
+    Function(FuncName, Box<Expr>),
 }
 
 #[derive(Debug)]
@@ -131,6 +159,15 @@ enum BinOp {
 #[derive(Debug)]
 enum UnaryOp {
     Negate,
+}
+
+#[derive(Debug)]
+enum FuncName {
+    Sqrt,
+    Sin,
+    Cos,
+    Tan,
+    Cot,
 }
 
 struct Parser {
@@ -214,10 +251,11 @@ impl Parser {
     }
 
     fn base(&mut self) -> Result<Expr, String> {
-        match self.current_token {
+        match &self.current_token {
             Token::Number(num) => {
-                self.eat(Token::Number(num))?;
-                Ok(Expr::Number(num))
+                let n = *num;
+                self.eat(Token::Number(n))?;
+                Ok(Expr::Number(n))
             }
             Token::LeftParen => {
                 self.eat(Token::LeftParen)?;
@@ -225,11 +263,34 @@ impl Parser {
                 self.eat(Token::RightParen)?;
                 Ok(expr)
             }
+            Token::Sqrt | Token::Sin | Token::Cos | Token::Tan | Token::Cot => {
+                self.parse_function()
+            }
             _ => Err(format!(
-                "Expected number or '(', found {:?}",
+                "Expected number, '(', or function, found {:?}",
                 self.current_token
             )),
         }
+    }
+
+    fn parse_function(&mut self) -> Result<Expr, String> {
+        let func_token = self.current_token.clone();
+        self.eat(func_token.clone())?;
+        
+        self.eat(Token::LeftParen)?;
+        let arg = self.expr()?;
+        self.eat(Token::RightParen)?;
+        
+        let func_name = match func_token {
+            Token::Sqrt => FuncName::Sqrt,
+            Token::Sin => FuncName::Sin,
+            Token::Cos => FuncName::Cos,
+            Token::Tan => FuncName::Tan,
+            Token::Cot => FuncName::Cot,
+            _ => unreachable!(),
+        };
+        
+        Ok(Expr::Function(func_name, Box::new(arg)))
     }
 }
 
@@ -258,12 +319,41 @@ impl Expr {
                 let val = expr.evaluate()?;
                 Ok(-val)
             }
+            Expr::Function(func, arg_expr) => {
+                let arg_val = arg_expr.evaluate()?;
+                match func {
+                    FuncName::Sqrt => {
+                        if arg_val < 0.0 {
+                            Err("Square root of negative number".to_string())
+                        } else {
+                            Ok(arg_val.sqrt())
+                        }
+                    }
+                    FuncName::Sin => Ok(arg_val.sin()),
+                    FuncName::Cos => Ok(arg_val.cos()),
+                    FuncName::Tan => {
+                        // Avoid domain errors for tan(π/2 + kπ)
+                        if (arg_val / std::f64::consts::FRAC_PI_2).fract().abs() < 1e-10 {
+                            Err("Tangent undefined for this angle".to_string())
+                        } else {
+                            Ok(arg_val.tan())
+                        }
+                    }
+                    FuncName::Cot => {
+                        if arg_val.sin() == 0.0 {
+                            Err("Cotangent undefined for this angle".to_string())
+                        } else {
+                            Ok(1.0 / arg_val.tan())
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
 fn main() {
-    println!("Enter an arithmetic expression (e.g., 2 + 3 * 4):");
+    println!("Enter an arithmetic expression (e.g., sin(0.5) + sqrt(9):");
     let mut input = String::new();
     io::stdin().read_line(&mut input).unwrap();
     let input = input.trim();
